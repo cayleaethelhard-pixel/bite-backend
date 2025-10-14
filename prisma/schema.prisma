@@ -1,0 +1,139 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+// 1. DATASOURCE (must be first)
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 2. GENERATOR (must be second)
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 3. ENUMS (must be before models that use them)
+enum Role {
+  STUDENT
+  STARTUP
+  BUSINESS
+  INVESTOR
+}
+
+// 4. MODELS (in any order, but all must be defined)
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  password      String
+  role          Role      @default(STUDENT)
+  fullName      String?
+  profilePicture String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now())
+
+  // Student fields
+  institution     String?
+  educationLevel  String?
+  skills          String?
+  interests       String?
+  goals           String?
+  about           String?
+  location        String?
+  availability    String?
+
+  // Startup/Business fields
+  companyName     String?
+  industry        String?
+  companySize     String?
+  hiringNeeds     String?
+  fundingStage    String?
+  description     String?
+
+  // Investor fields
+  firmName        String?
+  investmentFocus String?
+  portfolioSize   String?
+  preferredIndustries String?
+  budgetRange     String?
+  stagePreference String?
+  geographicFocus String?
+  investmentGoals String?
+
+  // Relations
+  ownedProjects   Project[] @relation("ProjectOwner")
+  teamProjects    Project[] @relation("ProjectTeam")
+  sentMessages    Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+  matches         Match[]   @relation("UserMatches")
+  matchedBy       Match[]   @relation("MatchedUser")
+  profileViews    ProfileView[] @relation("ProfileViews")
+  viewedProfiles  ProfileView[] @relation("ProfileViewed")
+}
+
+model Project {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  ownerId     Int
+  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  status      String   @default("planning")
+  deadline    DateTime?
+  team        User[]   @relation("ProjectTeam")
+  tasks       Task[]   @relation("ProjectTasks")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Task {
+  id          Int      @id @default(autoincrement())
+  text        String
+  completed   Boolean  @default(false)
+  projectId   Int
+  project     Project  @relation("ProjectTasks", fields: [projectId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model Message {
+  id            Int      @id @default(autoincrement())
+  content       String
+  senderId      Int
+  receiverId    Int
+  sender        User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver      User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  read          Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model Match {
+  id         Int   @id @default(autoincrement())
+  userId     Int
+  matchedId  Int
+  user       User  @relation("UserMatches", fields: [userId], references: [id])
+  matchedUser User @relation("MatchedUser", fields: [matchedId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, matchedId])
+}
+
+model ProfileView {
+  id        Int    @id @default(autoincrement())
+  viewerId  Int
+  viewedId  Int
+  viewer    User   @relation("ProfileViews", fields: [viewerId], references: [id])
+  viewed    User   @relation("ProfileViewed", fields: [viewedId], references: [id])
+  createdAt DateTime @default(now())
+  
+  @@unique([viewerId, viewedId, createdAt])
+}

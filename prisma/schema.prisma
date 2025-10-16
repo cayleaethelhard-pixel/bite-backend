@@ -33,6 +33,7 @@ model User {
   profilePicture String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @default(now())
+  tier String? @default("free") // free, pro, career-plus, scale-faster, etc.
 
   // Student fields
   institution     String?

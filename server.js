@@ -7,14 +7,16 @@ import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto'; 
 import nodemailer from 'nodemailer';
 
-// Create reusable transporter object
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+// Email transporter setup
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    service: process.env.EMAIL_SERVICE,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+};
 
 const app = express();
 const prisma = new PrismaClient();
@@ -73,10 +75,12 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
+
+    // Find user
     const user = await prisma.user.findUnique({ where: { email } });
     
     if (user) {
-      // Generate secure, random reset token
+      // Generate secure reset token
       const resetToken = crypto.randomBytes(32).toString('hex');
       const resetExpires = new Date(Date.now() + 3600000); // 1 hour
       
@@ -93,22 +97,45 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
       
       // Send email
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: 'BITE Password Reset Request',
-        html: `
-          <h2>Password Reset Request</h2>
-          <p>You requested to reset your password for BITE.</p>
-          <p>Click the button below to reset your password:</p>
-          <a href="${resetUrl}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; margin: 20px 0;">
-            Reset Password
-          </a>
-          <p>This link expires in 1 hour.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        `
-      });
-    }
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'BITE Password Reset Request',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #4f46e5; font-size: 28px;">BITE</h1>
+            <p style="color: #6b7280; font-size: 16px;">Bridging Innovators, Talents, and Entrepreneurs</p>
+          </div>
+          
+          <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+            <h2 style="color: #1f2937; font-size: 24px; margin-bottom: 20px;">Password Reset Request</h2>
+            <p style="color: #4b5563; margin-bottom: 20px;">
+              We received a request to reset your BITE account password. Click the button below to create a new password.
+            </p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetUrl}" 
+                 style="background: #4f46e5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+                Reset Password
+              </a>
+            </div>
+            
+            <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">
+              This link will expire in 1 hour. If you did not request a password reset, please ignore this email.
+            </p>
+
+             <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+            
+            <p style="color: #6b7280; font-size: 12px; text-align: center;">
+              Need help? Contact us at support@bite-app.com
+            </p>
+          </div>
+        </div>
+      `
+    });
+  }
     
     // Always return success (security best practice)
     res.json({ 
@@ -122,12 +149,17 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
-//Reset Password Endpoint
+
+// Reset Password Endpoint - COMPLETE IMPLEMENTATION
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { token, newPassword } = req.body;
     
-    // Find user with valid reset token
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token and new password are required' });
+    }
+    
+    // Find user with valid token that hasn't expired
     const user = await prisma.user.findFirst({
       where: {
         resetToken: token,
@@ -142,7 +174,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
-    // Update password and clear reset token
+    // Update user password and clear reset token
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -152,7 +184,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
       }
     });
     
-    res.json({ success: true, message: 'Password reset successful' });
+    res.json({ success: true, message: 'Password has been reset successfully' });
     
   } catch (error) {
     console.error('Reset password error:', error);
@@ -365,19 +397,6 @@ function formatTimeAgo(date) {
   return new Date(date).toLocaleDateString();
 }
 
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
-// Handle graceful shutdown
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
-
-
 // Backend middleware function
 const canAccessFeature = (user, feature) => {
   const userPermissions = PERMISSIONS[user.role]?.[user.tier] || [];
@@ -390,14 +409,6 @@ const canAccessFeature = (user, feature) => {
   // Check if specific feature is allowed
   return userPermissions.includes(feature);
 };
-
-// Usage in protected routes
-app.get('/api/premium-feature', authenticateToken, async (req, res) => {
-  if (!canAccessFeature(req.user, 'premium_feature')) {
-    return res.status(403).json({ error: 'Insufficient permissions' });
-  }
-  // Proceed with premium feature logic
-});
 
 // Handle successful payment and update user tier
 app.post('/api/payments/success', authenticateToken, async (req, res) => {
@@ -413,7 +424,7 @@ app.post('/api/payments/success', authenticateToken, async (req, res) => {
       investor: ['free', 'explorer', 'pro-investor']
     };
 
-    const user = await prisma.user.findUnique({ where: { userId: userId } });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -435,3 +446,57 @@ app.post('/api/payments/success', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to process payment' });
   }
 });
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+// Usage in protected routes
+app.get('/api/premium-feature', authenticateToken, async (req, res) => {
+  if (!canAccessFeature(req.user, 'premium_feature')) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+  // Proceed with premium feature logic
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+// Upgrade User Tier Endpoint
+app.post('/api/users/upgrade', authenticateToken, async (req, res) => {
+  try {
+    const { tier } = req.body;
+    const userId = req.user.userId;
+
+    // Validate tier based on role
+    const validTiers = {
+      student: ['free', 'pro', 'career-plus'],
+      startup: ['free', 'scale-faster', 'pro-founder'],
+      business: ['free', 'talent-plus', 'investor-plus'],
+      investor: ['free', 'explorer', 'pro-investor']
+    };
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!validTiers[user.role].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier for your role' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { tier }
+    });
+
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    res.json(userWithoutPassword);
+
+  } catch (error) {
+    console.error('Upgrade error:', error);
+    res.status(500).json({ error: 'Failed to upgrade account' });
+  }
+});
+
